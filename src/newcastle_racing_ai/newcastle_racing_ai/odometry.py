@@ -61,10 +61,20 @@ class OdometryNode(Node):
 
         self.odom_publisher.publish(odom_msg)
 
+    """
+    Things to research/understand
+    - Does ROS keep scope with old values are all values volatile upon each message
+        - maybe publish message data then retrieve old data from /odom or /imu 
+        - learn how ROS actually works
+    - What data is available from odometries such as IMU or magnetometers
+    - Particle and Kalman filters for error correction
+    """
+
     def vehicle_state_calc(self):
         imu = self.imu
         
         # Point of the 3 position coordinates
+        position_old = Point(x=0,y=0,z=0)
         position = Point(x=0, y=0, z=0)
         current_time = imu.header.stamp.sec + imu.header.stamp.nanosec * 1e-9
         if self.prev_time is None:
@@ -76,18 +86,53 @@ class OdometryNode(Node):
         angular_velocity = imu.angular_velocity
         orientation = imu.orientation
        
+        acceleration = np.array([
+           imu.linear_acceleration.x,
+           imu.linear_acceleration.y,
+           imu.linear_acceleration.z
+        ])
+       
         # rough velocity calculation assuming v0 is always = 0
-        linear_velocity_x = imu.linear_acceleration.x * dt
-        linear_velocity_y = imu.linear_acceleration.y * dt
-        linear_velocity_z = imu.linear_acceleration.z * dt
-        velocity = math.hypot(linear_velocity_x, linear_velocity_y)
-
+        # linear_velocity_x = imu.linear_acceleration.x * dt
+        # linear_velocity_y = imu.linear_acceleration.y * dt
+        # linear_velocity_z = imu.linear_acceleration.z * dt
+        # velocity = math.hypot(linear_velocity_x, linear_velocity_y)
+        
+        # slightly better velocity calculation
+        linear_velocity_x_old = 0
+        linear_velocity_y_old = 0
+        linear_velocity_z_old = 0
+        # V.old values for velocity
+        linear_velocity_x_old = acceleration[0] * dt
+        linear_velocity_y_old = acceleration[1] * dt
+        linear_velocity_z_old = acceleration[2] * dt
+        
+        # V.new values for velocity
+        linear_velocity_x_new = linear_velocity_x_old + acceleration[0] * dt
+        linear_velocity_y_new = linear_velocity_y_old + acceleration[1] * dt
+        linear_velocity_z_new = linear_velocity_z_old + acceleration[2] * dt     
+  
         # rough position calculation assuming position is always from 0
-        position.x = linear_velocity_x * dt
-        position.y = linear_velocity_y * dt
-        position.z = linear_velocity_z * dt
+        # position.x = linear_velocity_x * dt
+        # position.y = linear_velocity_y * dt
+        # position.z = linear_velocity_z * dt
         
+        # slightly better position calculation
+        position_old.x = linear_velocity_x_old * dt
+        position_old.y = linear_velocity_y_old * dt
+        position_old.z = linear_velocity_z_old * dt
         
+        position.x = position_old.x + linear_velocity_x_old * dt + 0.5*acceleration[0]*(dt*dt)
+        position.y = position_old.y + linear_velocity_y_old * dt + 0.5*acceleration[1]*(dt*dt)
+        position.z = position_old.z + linear_velocity_z_old * dt + 0.5*acceleration[2]*(dt*dt)
+        
+        # overwriting old variables
+        linear_velocity_x_old = linear_velocity_x_new
+        linear_velocity_y_old = linear_velocity_y_new
+        linear_velocity_z_old = linear_velocity_z_new
+        position_old.x = position.x
+        position_old.y = position.y
+        position_old.z = position.z
         
         # calculating yaw from sin(y)+cos(p) and cos(y)+cos(p)
         siny_cosp = 2.0 * ((orientation.w * orientation.z) + (orientation.x * orientation.y))
