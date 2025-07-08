@@ -4,6 +4,7 @@ from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion, Point, Pose, PoseWithCovariance, Twist, TwistWithCovariance
 import numpy as np
+from math import hypot, atan2 as math
 from builtin_interfaces.msg import Time
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from .parameters import PARAMETERS
@@ -59,6 +60,38 @@ class OdometryNode(Node):
 
         self.odom_publisher.publish(odom_msg)
 
+    def vehicle_state_calc(self):
+        imu = self.imu
+        position = Point(x=0, y=0, z=0)
+        current_time = imu.header.stamp.sec + imu.header.stamp.nanosec * 1e-9
+        if self.prev_time is None:
+            self.prev_time = current_time
+            return
+        
+        dt = current_time - self.prev_time
+       
+        angular_velocity = imu.angular_velocity
+        orientation = imu.orientation
+       
+        # rough velocity calculation
+        linear_velocity_x = imu.linear_acceleration.x * dt
+        linear_velocity_y = imu.linear_acceleration.y * dt
+        # linear_velocity_z = imu.linear_acceleration.z * dt
+        velocity = math.hypot(linear_velocity_x, linear_velocity_y)
+
+        # rough position calculation
+        position.x = linear_velocity_x * dt
+        position.y = linear_velocity_y * dt
+        # position.x = linear_velocity_z * dt
+        
+        
+        
+        # linear_velocity = np.array([
+        #     linear_velocity_x,
+        #     linear_velocity_y,
+        #     linear_velocity_z
+        # ])
+    
 def main(args=None):
     rclpy.init(args=args)
     node = OdometryNode()
