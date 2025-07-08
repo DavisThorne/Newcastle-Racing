@@ -22,6 +22,7 @@ class OdometryNode(Node):
         self.position = np.zeros(3)
         self.velocity = np.zeros(3)
         self.imu = Imu()
+        self.vehicle_state
 
     def imu_callback(self, msg):
         self.imu = msg
@@ -62,6 +63,8 @@ class OdometryNode(Node):
 
     def vehicle_state_calc(self):
         imu = self.imu
+        
+        # Point of the 3 position coordinates
         position = Point(x=0, y=0, z=0)
         current_time = imu.header.stamp.sec + imu.header.stamp.nanosec * 1e-9
         if self.prev_time is None:
@@ -73,24 +76,31 @@ class OdometryNode(Node):
         angular_velocity = imu.angular_velocity
         orientation = imu.orientation
        
-        # rough velocity calculation
+        # rough velocity calculation assuming v0 is always = 0
         linear_velocity_x = imu.linear_acceleration.x * dt
         linear_velocity_y = imu.linear_acceleration.y * dt
-        # linear_velocity_z = imu.linear_acceleration.z * dt
+        linear_velocity_z = imu.linear_acceleration.z * dt
         velocity = math.hypot(linear_velocity_x, linear_velocity_y)
 
-        # rough position calculation
+        # rough position calculation assuming position is always from 0
         position.x = linear_velocity_x * dt
         position.y = linear_velocity_y * dt
-        # position.x = linear_velocity_z * dt
+        position.z = linear_velocity_z * dt
         
         
+        
+        # calculating yaw from sin(y)+cos(p) and cos(y)+cos(p)
+        siny_cosp = 2.0 * ((orientation.w * orientation.z) + (orientation.x * orientation.y))
+        cosy_cosp = -1.0 * ((orientation.y * orientation.y) + (orientation.z * orientation.z))
+        yaw = math.atan2(siny_cosp, cosy_cosp)
         
         # linear_velocity = np.array([
         #     linear_velocity_x,
         #     linear_velocity_y,
         #     linear_velocity_z
         # ])
+        
+        self.vehicle_state = [position, yaw]
     
 def main(args=None):
     rclpy.init(args=args)
