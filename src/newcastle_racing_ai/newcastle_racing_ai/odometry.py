@@ -22,7 +22,13 @@ class OdometryNode(Node):
         self.position = np.zeros(3)
         self.velocity = np.zeros(3)
         self.imu = Imu()
-        self.vehicle_state
+        # Kalman filter variables
+        self.state_estimate
+        self.error_matrix
+
+        # list containing a list of position values and a yaw value
+        # e.g. [[x, y, z], yaw]
+        self.vehicle_state 
 
     def imu_callback(self, msg):
         self.imu = msg
@@ -47,17 +53,23 @@ class OdometryNode(Node):
 
         self.velocity += acc * dt
         self.position += self.velocity * dt
+        
+        self.vehicle_state_calc()
 
         odom_msg = Odometry()
         odom_msg.header.stamp = imu.header.stamp
         odom_msg.header.frame_id = 'odom'
         odom_msg.child_frame_id = 'base_link'
-        odom_msg.pose.pose.position = Point(x=self.position[0], y=self.position[1], z=self.position[2])
+        odom_msg.pose.pose.position = Point(x=self.vehicle_state[0][0], y=self.vehicle_state[0][1], z=self.vehicle_state[0][2])
         odom_msg.pose.pose.orientation = imu.orientation
         odom_msg.twist.twist.linear.x = self.velocity[0]
         odom_msg.twist.twist.linear.y = self.velocity[1]
         odom_msg.twist.twist.linear.z = self.velocity[2]
         odom_msg.twist.twist.angular = imu.angular_velocity
+
+        # variable to publish is self.vehicle_state
+        # is an array containing [x, y, z], yaw
+        # like this [ [x, y, z], yaw ]
 
         self.odom_publisher.publish(odom_msg)
 
@@ -72,10 +84,9 @@ class OdometryNode(Node):
 
     def vehicle_state_calc(self):
         imu = self.imu
-        
         # Point of the 3 position coordinates
-        position_old = Point(x=0,y=0,z=0)
-        position = Point(x=0, y=0, z=0)
+        position_old = [0,0,0]
+        position = [0, 0, 0]
         current_time = imu.header.stamp.sec + imu.header.stamp.nanosec * 1e-9
         if self.prev_time is None:
             self.prev_time = current_time
@@ -90,13 +101,7 @@ class OdometryNode(Node):
            imu.linear_acceleration.x,
            imu.linear_acceleration.y,
            imu.linear_acceleration.z
-        ])
-       
-        # rough velocity calculation assuming v0 is always = 0
-        # linear_velocity_x = imu.linear_acceleration.x * dt
-        # linear_velocity_y = imu.linear_acceleration.y * dt
-        # linear_velocity_z = imu.linear_acceleration.z * dt
-        # velocity = math.hypot(linear_velocity_x, linear_velocity_y)
+        ])   
         
         # slightly better velocity calculation
         linear_velocity_x_old = 0
@@ -111,42 +116,35 @@ class OdometryNode(Node):
         linear_velocity_x_new = linear_velocity_x_old + acceleration[0] * dt
         linear_velocity_y_new = linear_velocity_y_old + acceleration[1] * dt
         linear_velocity_z_new = linear_velocity_z_old + acceleration[2] * dt     
-  
-        # rough position calculation assuming position is always from 0
-        # position.x = linear_velocity_x * dt
-        # position.y = linear_velocity_y * dt
-        # position.z = linear_velocity_z * dt
         
         # slightly better position calculation
-        position_old.x = linear_velocity_x_old * dt
-        position_old.y = linear_velocity_y_old * dt
-        position_old.z = linear_velocity_z_old * dt
+        position_old[0] = linear_velocity_x_old * dt
+        position_old[1] = linear_velocity_y_old * dt
+        position_old[2] = linear_velocity_z_old * dt
         
-        position.x = position_old.x + linear_velocity_x_old * dt + 0.5*acceleration[0]*(dt*dt)
-        position.y = position_old.y + linear_velocity_y_old * dt + 0.5*acceleration[1]*(dt*dt)
-        position.z = position_old.z + linear_velocity_z_old * dt + 0.5*acceleration[2]*(dt*dt)
+        position[0] = position_old[0] + linear_velocity_x_old * dt + 0.5*acceleration[0]*(dt*dt)
+        position[1] = position_old[1] + linear_velocity_y_old * dt + 0.5*acceleration[1]*(dt*dt)
+        position[2] = position_old[2] + linear_velocity_z_old * dt + 0.5*acceleration[2]*(dt*dt)
         
+        state_vector = np.array()
+
         # overwriting old variables
         linear_velocity_x_old = linear_velocity_x_new
         linear_velocity_y_old = linear_velocity_y_new
         linear_velocity_z_old = linear_velocity_z_new
-        position_old.x = position.x
-        position_old.y = position.y
-        position_old.z = position.z
+        position_old[0] = position[0]
+        position_old[1] = position[1]
+        position_old[2] = position[2]
         
         # calculating yaw from sin(y)+cos(p) and cos(y)+cos(p)
         siny_cosp = 2.0 * ((orientation.w * orientation.z) + (orientation.x * orientation.y))
         cosy_cosp = -1.0 * ((orientation.y * orientation.y) + (orientation.z * orientation.z))
         yaw = math.atan2(siny_cosp, cosy_cosp)
-        
-        # linear_velocity = np.array([
-        #     linear_velocity_x,
-        #     linear_velocity_y,
-        #     linear_velocity_z
-        # ])
-        
-        self.vehicle_state = [position, yaw]
-    
+        self.velocity[1] = linear_velocity_x_new
+        self.velocity[2] = linear_velocity_y_new
+        self.velocity[3] = linear_velocity_z_new
+        self.vehicle_state = [position, yaw]   
+
 def main(args=None):
     rclpy.init(args=args)
     node = OdometryNode()
